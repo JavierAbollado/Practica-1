@@ -1,0 +1,4 @@
+01_unlimited: productor consumidor sin memoria acotada
+02_limited_wrong: está mal porque el objeto compartido debe tener un
+mutex
+01_limited: versión correcta

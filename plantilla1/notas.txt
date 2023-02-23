@@ -1,0 +1,22 @@
+Curso 18-19
+
+0_procesos.py
+Process, definición de procesos; ejecución entrelazada.
+
+1_procesos.py: 
+Process, definición de procesos, argumentos; ejecución entrelazada.
+
+2_procesos.py:
+Process, definición de procesos, argumentos, nombre; ejecución entrelazada; current_process.
+
+3_procesos.py:
+ejecución entrelazada no deseada (sin entrar en muchos detalles sobre qué es Value, esencialmente una variable) es muy fácil ver ejecuciones no deseadas en las que el último valor de la variable no es el resultado de multiplicar el número de procesos por el número de incrementos. También puede verse como en ocasiones, sí que se consigue llegar a dicho número (sobre todo si no es muy alto).
+
+EM_semaphore.py:
+Solución a la exclusión mutua con semáforos. 
+
+EM_semaphore_non_blocking.py:
+Solución con semáforo no bloqueante.
+
+
+
