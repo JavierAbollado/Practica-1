@@ -1,7 +1,7 @@
 from multiprocessing import Process
-from multiprocessing import BoundedSemaphore, Semaphore, Lock
+from multiprocessing import BoundedSemaphore, Semaphore
 from multiprocessing import current_process
-from multiprocessing import Value, Array
+from multiprocessing import Array
 from time import sleep
 import random
 import numpy as np
@@ -9,10 +9,10 @@ import numpy as np
 
 
 
-K = 10              # number of elements (to produce) per producer
-MAX_STORAGE = 5     # max capacity of a storage
-NPROD = 3           # number of producers
-N = K * NPROD       # total number of values in the final list (K values per producer)
+K = 10              # nº de elemtos a producir (por productor)
+MAX_STORAGE = 5     # capacidad máxima del storage
+NPROD = 3           # nº de productores
+N = K * NPROD       # nº total de elemntos (a introducir en la lista final)
 
 
 def delay(factor = 3):
@@ -20,133 +20,129 @@ def delay(factor = 3):
 
 
 """
-    PRODUCER:
-    - ADD_DATA -> ADD DATA TO THE STORAGE.
-    - PRODUCE  -> GENERATES NEW DATA AND ADD IT TO THE STORAGE.
+    PRODUCTOR:
+    ---------
+    - ADD_DATA -> AÑADE DATOS AL STORAGE.
+    - PRODUCE  -> GENERA NUEVOS DATOS.
 """
-def add_data(storage, data, position, access_lock, capacity_lock, empty_lock):
-    access_lock.acquire()
-    pos = position.value
+def add_data(storage, data, position, sem_capacity, sem_empty):
     try:
-        storage[pos] = data
-        position.value = pos + 1
-        capacity_lock.acquire()  
-        empty_lock.release()     
+        # esperar a que tengamos espacio
+        sem_capacity.acquire() 
+        # añadir datos
+        storage[position] = data 
+        sem_empty.release()   
         delay(6)
-    finally:
-        access_lock.release()
+    finally:  
+        pass
 
-def produce(storage, position, access_lock, capacity_lock, empty_lock): 
+def produce(storage, sem_capacity, sem_empty): 
     last_data = 0
+    position = 0   # índice donde insertar el siguiente valor
     for n in range(K+1):
-        # create new data
+        # crear nuevos datos
         print (f"\n[{current_process().name}] produciendo")
         data = last_data + random.randint(1,10) if n < K else -1 # end of secuence 
-        # wait until we have space in our storage
-        capacity_lock.acquire()
-        capacity_lock.release()
-        # add data
-        add_data(storage, data, position, access_lock, capacity_lock, empty_lock)
-        print (f"\n[{current_process().name}]\t==>\t| dato : {data}\t| pos : {position.value-1}")
+        # añadir datos
+        add_data(storage, data, position, sem_capacity, sem_empty)
+        print (f"\n[{current_process().name}]\t==>\t| dato : {data}\t| posicion : {position}")
+        position = (position + 1) % MAX_STORAGE
         last_data = data
 
 
 """
-    CONSUMER:
-    - GET_DATA            -> GET DATA FROM ONE OF THE STORAGES AND ADD IT TO THE FINAL LIST.
-    - GET_MIN_VALUE_INDEX -> FIND THE STORAGE WHO HAS THE MINIMUM ELEMENT (KNOWING THAT ALL OF THEM ARE NOT EMPTY OR FULL & CHECKS IF IT IS FINISHED "-1").
-    - CONSUME             -> WAITS UNTIL EVERY STORAGE HAS AT LEATS ONE ELEMENT. THEN CONSUME THE MINIMUM ELEMENT TO ADD IT TO THE FINAL LIST. 
+    CONSUMIDOR:
+    ---------
+    - GET_DATA       -> COGER DATO DE UNO DE LOS STORAGES
+    - GET_MIN_VALUES -> RETORNAR UNA LISTA DE LOS PRIMEROS ELEMENTOS DE LOS STORAGES
+    - CONSUME        -> COGER EL MIN ELEMENTO Y AÑADIRLO A LA LISTA FINAL
 """
-def get_data(storage, position, access_lock, capacity_lock, empty_lock):
-    access_lock.acquire()
-    pos = position.value
+def get_data(storage, position, sem_capacity, sem_empty):
     try:
-        data = storage[0]
-        position.value = pos - 1
-        # (if) the storage only had one element => now is empty
-        empty_lock.acquire() 
-        # (if) the storage was full => now we can release one position
-        capacity_lock.release()  
-        for i in range(pos-1):
-            storage[i] = storage[i+1]
-        storage[pos-1] = -2  # empty
+        data = storage[position]
+        sem_empty.acquire()     
+        sem_capacity.release()  # vaciar un espacio
+        storage[position] = -2  # dato vacío
     finally:
-        access_lock.release()
+        pass
     return data
 
-def get_min_value_index(storages):
-    g = lambda x : x if x != -1 else np.inf  # if x == -1 then that storage is finished so we dont want to select it
-    values = [g(storage[0]) for storage in storages]
-    return np.argmin(values)
+def get_min_values(storages, storages_index, sems_empty):
+    # esperar hasta que tengamos al menos un elemento en todos los storages
+    for sem in sems_empty:
+        sem.acquire()
+        sem.release() 
+    # coger valores mínimos : -1 indica que el proceso ha terminado
+    g = lambda x : x if x != -1 else np.inf  
+    values = [g(storage[i]) for storage, i in zip(storages, storages_index)]
+    return values
 
-def consume(final_list, storages, storages_last_index, storages_access, storages_capacity, storages_empty):
-    for n in range(N):
-        # wait until we have at least one element in every storage
-        for sem in storages_empty:
-            sem.acquire()           
-        # realese their locks after it
-        for sem in storages_empty:
-            sem.release()           
-        # find the minimun value and consume it (of the non finished storages)
-        print (f"\n[{current_process().name}] desalmacenando")
-        index = get_min_value_index(storages)
-        data = get_data(storages[index], storages_last_index[index], storages_access[index], storages_capacity[index], storages_empty[index])
-        # save data
-        final_list[2*n] = index
-        final_list[2*n+1] = data
-        print (f"\n[{current_process().name}]\t==>\t| dato : {data}\t| pos : {n}")
+def consume(storages, sems_capacity, sems_empty):
+    final_list  = []
+    final_prods = []
+    storages_index = [0 for _ in range(NPROD)] # índice donde coger el siguiente dato
+    n = -1
+    while True:          
+        n += 1
+        # coger el primer dato de cada productor
+        print (f"\n[{current_process().name}] buscando")
+        values = get_min_values(storages, storages_index, sems_empty)
+        # comprobar si hemos terminado
+        if values == [np.inf for _ in range(NPROD)]:
+            break
+        # encontrar el elemento mínimo
+        index = np.argmin(values)
+        data = get_data(storages[index], storages_index[index], sems_capacity[index], sems_empty[index])
+        storages_index[index] = (storages_index[index] + 1) % MAX_STORAGE
+        # guardar datos
+        final_list.append(data)
+        final_prods.append(index)
+        print (f"\n[{current_process().name}]\t<==\t| dato : {data}\t| posicion : {n}\t| producer : {index}")
         delay()
+    # ver el resultado final
+    print("\nLista final (ordenada con 'merge sort'):")
+    print(final_list)
+    print("\nPodemos observar de que productor viene cada elemento:")
+    for n in range(N):
+        print(f"[P{final_prods[n]}] {final_list[n]}")
 
 
 """
-    MAIN FUNCTION:
-    - CREATE 'NPROD' PRODUCERS, EACH OF THEM PRODUCE 'K' VALUES AND AT THE END WE RETURN THE FINAL_LIST WITH ALL THESE VALUES SORTED.  
-    EVERY PRODUCER HAS HIS OWN STORAGE OF A MAXIMUM OF 'MAX_STORAGE' ELEMENTS. SO IF WE RUN OUT OF SPACE WE WAIT UNTIL THE CONSUMER CONSUME SOME OF
-    OUR ELEMENTS.
+    MAIN:
+    -----
+    - CREA 'NPROD' PRODUCTORES, CADA UNO PRODUCE 'K' VALORES Y AL FINAL RETORNAMOS LA LISTA FINAL CON TODOS LOS VALORES ORDENADOS.  
+    TODOS LOS PRODUCTORES TIENEN SU PROPIO STORAGE DE CAPACIDAD MÁXIMA: 'MAX_STORAGE'. POR LO QUE SI NOS QUEDAMOS SIN ESPACIO EN EL 
+    STORAGE ESPERAREMOS A QUE EL CONSUMIDOR NOS QUITE ALGÚN ELEMENTO.
 """
 def main():
 
-    final_list = Array('i', 2*N)  # process index -> 2*n / value -> 2*n+1
-    for i in range(2*N):
-        final_list[i] = 0
-
-    # individual storage for every producer (default / empty value : -2)
+    # storage individual para cada productor (valor nulo : -2)
     storages = [Array('i', MAX_STORAGE) for _ in range(NPROD)]
     for s in storages:
         for i in range(MAX_STORAGE):
             s[i] = -2
 
-    # position of the last element (+1) of every storage (the index in which is going to be the next element) : shared variable
-    storages_last_index = [Value('i', 0) for _ in range(NPROD)]
-
-    # Semaphores : 
-    storages_access   = [Lock() for _ in range(NPROD)]                   # only one (producer[i] / consumer) can access to the storage[i]
-    storages_capacity = [BoundedSemaphore(NPROD) for _ in range(NPROD)]  # blocks when the storage is full & (if is blocked) release when we take of one element
-    storages_empty    = [Semaphore(0) for _ in range(NPROD)]             # blocks when is empty (by default) & and release when we have at least one element
+    # Semaforos : 
+    sems_capacity = [BoundedSemaphore(NPROD) for _ in range(NPROD)]  # bloquea (el productor) cuando el storage esta lleno
+    sems_empty    = [Semaphore(0) for _ in range(NPROD)]             # bloquea (el consumidor) cuando el storage esta vacío
 
 
-    # NPROD producers -> each of them are going to create K values (in order)
+    # NPROD productores -> cada uno creará K valores (en orden)
     producers = [ Process(target=produce,
-                        name=f'Prod - {index+1}',
-                        args=(storages[index], storages_last_index[index], storages_access[index], storages_capacity[index], storages_empty[index]))
+                        name='Prod' + (' '*3 + str(index))[-4:],
+                        args=(storages[index], sems_capacity[index], sems_empty[index]))
                 for index in range(NPROD) ]
 
-    # A individual consumer, who is going to be consumin one element every time
-    # when the 'NPROD' producers has at least one value available 
+    # 1 consumidor : coge en orden todos los valores producidos por los productores 
     consumer = Process(target=consume,
                        name=f"Consumer",
-                       args=(final_list, storages, storages_last_index, storages_access, storages_capacity, storages_empty))
+                       args=(storages, sems_capacity, sems_empty))
 
-    # start all the Process and join them
+    # inicializar todos los procesos
     for p in producers + [consumer]:
         p.start()
     for p in producers + [consumer]:
         p.join()
-
-    # see the final results
-    print("\nFinal merge list:")
-    for n in range(N):
-        print(f"[P{final_list[2*n]}] {final_list[2*n+1]}")
 
 
 if __name__ == '__main__':
