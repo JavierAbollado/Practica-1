@@ -123,7 +123,7 @@ def main():
             s[i] = -2
 
     # Semaforos : 
-    sems_capacity = [BoundedSemaphore(NPROD) for _ in range(NPROD)]  # bloquea (el productor) cuando el storage esta lleno
+    sems_capacity = [BoundedSemaphore(MAX_STORAGE) for _ in range(NPROD)]  # bloquea (el productor) cuando el storage esta lleno
     sems_empty    = [Semaphore(0) for _ in range(NPROD)]             # bloquea (el consumidor) cuando el storage esta vacío
 
 
