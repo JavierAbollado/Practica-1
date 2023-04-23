@@ -59,10 +59,10 @@ def produce(storage, sem_capacity, sem_empty):
 """
 def get_data(storage, position, sem_capacity, sem_empty):
     try:
-        data = storage[position]
         sem_empty.acquire()     
-        sem_capacity.release()  # vaciar un espacio
+        data = storage[position]
         storage[position] = -2  # dato vacío
+        sem_capacity.release()  # vaciar un espacio
     finally:
         pass
     return data
