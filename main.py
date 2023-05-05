@@ -82,14 +82,11 @@ def consume(storages, sems_capacity, sems_empty):
     final_prods = []
     storages_index = [0 for _ in range(NPROD)] # índice donde coger el siguiente dato
     n = -1
-    while True:          
+    # coger el primer dato de cada productor
+    print (f"\n[{current_process().name}] buscando")
+    values = get_min_values(storages, storages_index, sems_empty)
+    while values != [np.inf for _ in range(NPROD)]:          
         n += 1
-        # coger el primer dato de cada productor
-        print (f"\n[{current_process().name}] buscando")
-        values = get_min_values(storages, storages_index, sems_empty)
-        # comprobar si hemos terminado
-        if values == [np.inf for _ in range(NPROD)]:
-            break
         # encontrar el elemento mínimo
         index = np.argmin(values)
         data = get_data(storages[index], storages_index[index], sems_capacity[index], sems_empty[index])
@@ -99,6 +96,9 @@ def consume(storages, sems_capacity, sems_empty):
         final_prods.append(index)
         print (f"\n[{current_process().name}]\t<==\t| dato : {data}\t| posicion : {n}\t| producer : {index}")
         delay()
+        # coger el primer dato de cada productor
+        print (f"\n[{current_process().name}] buscando")
+        values = get_min_values(storages, storages_index, sems_empty)
     # ver el resultado final
     print("\nLista final (ordenada con 'merge sort'):")
     print(final_list)
